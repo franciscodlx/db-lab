@@ -1,0 +1,540 @@
+
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# ==========================================
+# DB LAB ENTERPRISE
+# Service Manager
+# macOS / Bash 3.2+
+# ==========================================
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+DC=(docker compose -p db-lab-enterprise)
+
+# ==========================================
+# SERVICE CATALOG
+# ==========================================
+
+DATABASES=(
+  postgres
+  mysql
+  mariadb
+  mongodb
+  redis
+)
+
+MESSAGING=(
+  rabbitmq
+  kafka
+  kafka-ui
+)
+
+STORAGE=(
+  minio
+)
+
+OBSERVABILITY=(
+  prometheus
+  grafana
+  loki
+  alloy
+  cadvisor
+)
+
+TOOLS=(
+  adminer
+  phpmyadmin
+  mongo-express
+  redisinsight
+)
+
+ALL_SERVICES=(
+  "${DATABASES[@]}"
+  "${MESSAGING[@]}"
+  "${STORAGE[@]}"
+  "${OBSERVABILITY[@]}"
+  "${TOOLS[@]}"
+)
+
+# ==========================================
+# HELP
+# ==========================================
+
+usage() {
+cat <<'EOF'
+
+DB LAB ENTERPRISE
+=================
+
+INSTALL:
+  ./scripts/lab install
+
+INDIVIDUAL:
+  ./scripts/lab up postgres
+  ./scripts/lab up redis
+  ./scripts/lab up kafka
+
+MULTIPLE:
+  ./scripts/lab up postgres kafka
+  ./scripts/lab up postgres kafka redis
+
+GROUPS:
+  ./scripts/lab up core
+  ./scripts/lab up databases
+  ./scripts/lab up messaging
+  ./scripts/lab up storage
+  ./scripts/lab up observability
+  ./scripts/lab up tools
+  ./scripts/lab up dev
+
+ALL:
+  ./scripts/lab up all
+  ./scripts/lab up full
+
+STOP:
+  ./scripts/lab down postgres
+  ./scripts/lab down postgres kafka
+  ./scripts/lab down core
+  ./scripts/lab down messaging
+  ./scripts/lab down all
+
+OPERATIONS:
+  ./scripts/lab restart postgres
+  ./scripts/lab status
+  ./scripts/lab status postgres kafka
+  ./scripts/lab logs postgres
+  ./scripts/lab health
+  ./scripts/lab health postgres
+  ./scripts/lab monitor
+
+VALIDATION:
+  ./scripts/lab validate
+
+BACKUP:
+  ./scripts/lab backup postgres
+
+RESTORE:
+  ./scripts/lab restore postgres backup.sql.gz
+
+EOF
+}
+
+# ==========================================
+# ENVIRONMENT
+# ==========================================
+
+check_env() {
+
+  if [[ ! -f "$ROOT/.env" ]]; then
+    echo "ERROR: .env no existe."
+    echo ""
+    echo "Ejecuta:"
+    echo "cp .env.example .env"
+    echo "nano .env"
+    exit 1
+  fi
+
+}
+
+# ==========================================
+# DOCKER
+# ==========================================
+
+check_docker() {
+
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: Docker no está instalado."
+    exit 1
+  fi
+
+  if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: Docker Desktop no está iniciado."
+    exit 1
+  fi
+
+}
+
+# ==========================================
+# SERVICE EXPANSION
+# ==========================================
+
+services=()
+
+add_unique() {
+
+  local item="$1"
+  local existing
+
+  for existing in "${services[@]}"; do
+    if [[ "$existing" == "$item" ]]; then
+      return
+    fi
+  done
+
+  services+=("$item")
+
+}
+
+expand() {
+
+  local item
+  local service
+  local found
+
+  services=()
+
+  for item in "$@"; do
+
+    case "$item" in
+
+      core|databases)
+
+        for service in "${DATABASES[@]}"; do
+          add_unique "$service"
+        done
+        ;;
+
+      messaging)
+
+        for service in "${MESSAGING[@]}"; do
+          add_unique "$service"
+        done
+        ;;
+
+      storage)
+
+        for service in "${STORAGE[@]}"; do
+          add_unique "$service"
+        done
+        ;;
+
+      observability)
+
+        for service in "${OBSERVABILITY[@]}"; do
+          add_unique "$service"
+        done
+        ;;
+
+      tools)
+
+        for service in "${TOOLS[@]}"; do
+          add_unique "$service"
+        done
+        ;;
+
+      dev)
+
+        for service in \
+          "${DATABASES[@]}" \
+          "${MESSAGING[@]}" \
+          "${STORAGE[@]}"; do
+
+          add_unique "$service"
+        done
+        ;;
+
+      all|full)
+
+        for service in "${ALL_SERVICES[@]}"; do
+          add_unique "$service"
+        done
+        ;;
+
+      *)
+
+        found=false
+
+        for service in "${ALL_SERVICES[@]}"; do
+
+          if [[ "$service" == "$item" ]]; then
+            found=true
+            break
+          fi
+
+        done
+
+        if [[ "$found" != true ]]; then
+          echo "ERROR: Servicio desconocido: $item"
+          echo ""
+          usage
+          exit 1
+        fi
+
+        add_unique "$item"
+        ;;
+
+    esac
+
+  done
+
+}
+
+# ==========================================
+# INSTALL
+# ==========================================
+
+install_lab() {
+
+  echo "Installing DB Lab Enterprise..."
+
+  mkdir -p \
+    backups \
+    config/postgres \
+    config/mysql \
+    config/mariadb \
+    config/mongodb \
+    config/redis \
+    config/loki \
+    config/alloy \
+    config/prometheus \
+    monitoring/grafana/provisioning/datasources \
+    docs \
+    docs/adr \
+    examples
+
+  find scripts -type f \
+    \( -name "lab" -o -name "*.sh" \) \
+    -exec chmod +x {} \;
+
+  if [[ ! -f .env ]]; then
+
+    if [[ -f .env.example ]]; then
+      cp .env.example .env
+      chmod 600 .env
+
+      echo "Created .env from .env.example"
+      echo "Configure passwords before starting services."
+    else
+      echo "ERROR: Missing .env.example"
+      exit 1
+    fi
+
+  fi
+
+  check_docker
+  check_env
+
+  "${DC[@]}" config --quiet
+
+  echo ""
+  echo "DB Lab Enterprise installed."
+  echo "Run: ./scripts/lab up postgres"
+
+}
+
+# ==========================================
+# STATUS
+# ==========================================
+
+show_status() {
+
+  if [[ ${#services[@]} -eq 0 ]]; then
+    "${DC[@]}" ps -a
+  else
+    "${DC[@]}" ps -a "${services[@]}"
+  fi
+
+}
+
+# ==========================================
+# HEALTH
+# ==========================================
+
+show_health() {
+
+  local service
+  local id
+  local state
+  local result=0
+
+  for service in "${services[@]}"; do
+
+    id=$("${DC[@]}" ps -q "$service" 2>/dev/null || true)
+
+    if [[ -z "$id" ]]; then
+      echo "$service: STOPPED"
+      continue
+    fi
+
+    state=$(docker inspect --format \
+      '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+      "$id")
+
+    echo "$service: $state"
+
+    if [[ "$state" == "unhealthy" ]]; then
+      result=1
+    fi
+
+  done
+
+  return "$result"
+
+}
+
+# ==========================================
+# MONITOR
+# ==========================================
+
+monitor() {
+
+  echo ""
+  echo "ACTIVE CONTAINERS"
+  echo "================="
+
+  docker stats --no-stream
+
+  echo ""
+  echo "DOCKER DISK USAGE"
+  echo "================="
+
+  docker system df
+
+}
+
+# ==========================================
+# MAIN
+# ==========================================
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+ACTION="$1"
+shift
+
+case "$ACTION" in
+
+  install)
+
+    install_lab
+    ;;
+
+  validate)
+
+    check_env
+
+    echo "Validating Docker Compose..."
+
+    "${DC[@]}" config --quiet
+
+    echo "Compose configuration: OK"
+    ;;
+
+  up|down|restart|status|logs|health)
+
+    if [[ $# -eq 0 ]]; then
+
+      if [[ "$ACTION" == "status" || "$ACTION" == "health" ]]; then
+        expand all
+      else
+        usage
+        exit 1
+      fi
+
+    else
+
+      expand "$@"
+
+    fi
+
+    check_env
+    check_docker
+
+    case "$ACTION" in
+
+      up)
+
+        echo "Starting: ${services[*]}"
+
+        "${DC[@]}" up -d "${services[@]}"
+        ;;
+
+      down)
+
+        echo "Stopping: ${services[*]}"
+
+        "${DC[@]}" stop "${services[@]}"
+        ;;
+
+      restart)
+
+        echo "Restarting: ${services[*]}"
+
+        "${DC[@]}" restart "${services[@]}"
+        ;;
+
+      status)
+
+        show_status
+        ;;
+
+      logs)
+
+        "${DC[@]}" logs -f "${services[@]}"
+        ;;
+
+      health)
+
+        show_health
+        ;;
+
+    esac
+    ;;
+
+  monitor)
+
+    check_docker
+    monitor
+    ;;
+
+  backup)
+
+    check_env
+
+    if [[ $# -ne 1 ]]; then
+      usage
+      exit 1
+    fi
+
+    check_docker
+
+    if [[ -f scripts/backup.sh ]]; then
+      bash scripts/backup.sh "$1"
+    else
+      echo "ERROR: scripts/backup.sh no existe."
+      exit 1
+    fi
+    ;;
+
+  restore)
+
+    check_env
+
+    if [[ $# -ne 2 ]]; then
+      usage
+      exit 1
+    fi
+
+    check_docker
+
+    if [[ -f scripts/restore.sh ]]; then
+      bash scripts/restore.sh "$1" "$2"
+    else
+      echo "ERROR: scripts/restore.sh no existe."
+      exit 1
+    fi
+    ;;
+
+  *)
+
+    echo "ERROR: Comando desconocido: $ACTION"
+    usage
+    exit 1
+    ;;
+
+esac

@@ -1,0 +1,147 @@
+
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+COMPOSE=(docker compose)
+
+[[ -f .env ]] || {
+  echo "Falta .env. Ejecuta ./scripts/install.sh"
+  exit 1
+}
+
+source .env
+
+ENGINES=(mysql postgres mariadb mongodb redis)
+TOOLS=(adminer phpmyadmin mongo-express redisinsight)
+
+usage() {
+  cat <<'EOF'
+DB LAB ENTERPRISE
+
+Arranque:
+  ./scripts/db up mysql
+  ./scripts/db up mysql postgres
+  ./scripts/db up all
+  ./scripts/db up tools
+  ./scripts/db up everything
+
+Detener:
+  ./scripts/db down mysql
+  ./scripts/db down postgres redis
+  ./scripts/db down all
+
+Administracion:
+  ./scripts/db restart mysql
+  ./scripts/db status
+  ./scripts/db logs postgres
+  ./scripts/db shell mysql
+  ./scripts/db monitor
+  ./scripts/db health
+
+Backups:
+  ./scripts/db backup mysql
+  ./scripts/db backup postgres
+
+EOF
+}
+
+validate() {
+  local item
+  for item in "$@"; do
+    case "$item" in
+      mysql|postgres|mariadb|mongodb|redis|adminer|phpmyadmin|mongo-express|redisinsight)
+        ;;
+      *)
+        echo "Servicio desconocido: $item"
+        exit 1
+        ;;
+    esac
+  done
+}
+
+start() {
+  if [[ "$1" == "all" ]]; then
+    "${COMPOSE[@]}" up -d "${ENGINES[@]}"
+  elif [[ "$1" == "tools" ]]; then
+    "${COMPOSE[@]}" --profile tools up -d "${TOOLS[@]}"
+  elif [[ "$1" == "everything" ]]; then
+    "${COMPOSE[@]}" --profile tools up -d "${ENGINES[@]}" "${TOOLS[@]}"
+  else
+    validate "$@"
+    "${COMPOSE[@]}" up -d "$@"
+  fi
+}
+
+stop() {
+  if [[ "$1" == "all" ]]; then
+    "${COMPOSE[@]}" --profile tools stop
+  else
+    validate "$@"
+    "${COMPOSE[@]}" --profile tools stop "$@"
+  fi
+}
+
+case "${1:-help}" in
+
+  up)
+    shift
+    [[ $# -gt 0 ]] || { usage; exit 1; }
+    start "$@"
+    ;;
+
+  down)
+    shift
+    [[ $# -gt 0 ]] || { usage; exit 1; }
+    stop "$@"
+    ;;
+
+  restart)
+    shift
+    validate "$@"
+    "${COMPOSE[@]}" --profile tools restart "$@"
+    ;;
+
+  status)
+    "${COMPOSE[@]}" --profile tools ps -a
+    ;;
+
+  logs)
+    shift
+    validate "$@"
+    "${COMPOSE[@]}" --profile tools logs -f "$@"
+    ;;
+
+  shell)
+    shift
+    [[ $# -eq 1 ]] || { usage; exit 1; }
+    validate "$1"
+    "${COMPOSE[@]}" --profile tools exec "$1" sh
+    ;;
+
+  monitor)
+    ./scripts/monitor.sh
+    ;;
+
+  health)
+    ./scripts/health.sh
+    ;;
+
+  backup)
+    shift
+    [[ $# -eq 1 ]] || { usage; exit 1; }
+    ./scripts/backup.sh "$1"
+    ;;
+
+  restore)
+    shift
+    [[ $# -eq 2 ]] || { usage; exit 1; }
+    ./scripts/restore.sh "$1" "$2"
+    ;;
+
+  *)
+    usage
+    ;;
+esac

@@ -1,0 +1,473 @@
+name: db-lab-enterprise
+
+services:
+  # ==========================================
+  # DATABASES
+  # ==========================================
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB}
+      TZ: America/Mexico_City
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - lab
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 1g
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "core"
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Define MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Define MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?Define MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Define MYSQL_PASSWORD}
+      TZ: America/Mexico_City
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - lab
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'mysqladmin ping -h 127.0.0.1 -uroot -p"$${MYSQL_ROOT_PASSWORD}" --silent'
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    mem_limit: 1g
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "core"
+
+  mariadb:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?Define MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:?Define MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER:?Define MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?Define MARIADB_PASSWORD}
+      TZ: America/Mexico_City
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - lab
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "healthcheck.sh --connect --innodb_initialized"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 768m
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "core"
+
+  mongodb:
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?Define MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Define MONGO_PASSWORD}
+      TZ: America/Mexico_City
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - lab
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'mongosh --quiet --username "$${MONGO_INITDB_ROOT_USERNAME}" --password "$${MONGO_INITDB_ROOT_PASSWORD}" --authenticationDatabase admin --eval "db.adminCommand({ping:1}).ok" | grep -q 1'
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    mem_limit: 1g
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "core"
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define REDIS_PASSWORD}
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?Define REDIS_PASSWORD}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lab
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'redis-cli -a "$${REDIS_PASSWORD}" ping 2>/dev/null | grep -q PONG'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 384m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "core"
+
+  # ==========================================
+  # MESSAGING
+  # ==========================================
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Define RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Define RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - lab
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 768m
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "messaging"
+
+  kafka:
+    image: apache/kafka:4.0.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?Define KAFKA_CLUSTER_ID}
+      KAFKA_HEAP_OPTS: "-Xms512M -Xmx512M"
+    ports:
+      - "127.0.0.1:29092:9094"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - lab
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+    mem_limit: 2g
+    cpus: 1.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "messaging"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "127.0.0.1:8090:8080"
+    networks:
+      - lab
+    mem_limit: 512m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "messaging"
+
+  # ==========================================
+  # OBJECT STORAGE
+  # ==========================================
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-07T23-21-09Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Define MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Define MINIO_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - lab
+    mem_limit: 768m
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "storage"
+
+  # ==========================================
+  # OBSERVABILITY
+  # ==========================================
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=2GB
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - lab
+    mem_limit: 768m
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "observability"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:?Define GRAFANA_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Define GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - lab
+    mem_limit: 768m
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "observability"
+
+  loki:
+    image: grafana/loki:3.5.0
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/loki-config.yml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    networks:
+      - lab
+    mem_limit: 768m
+    cpus: 1.0
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "observability"
+
+  alloy:
+    image: grafana/alloy:v1.8.3
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_started
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - lab
+    mem_limit: 384m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "observability"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports:
+      - "127.0.0.1:8081:8080"
+    networks:
+      - lab
+    mem_limit: 384m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "observability"
+
+  # ==========================================
+  # ADMINISTRATION TOOLS
+  # ==========================================
+
+  adminer:
+    image: adminer:4.8.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:8080"
+    networks:
+      - lab
+    mem_limit: 256m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "tools"
+
+  phpmyadmin:
+    image: phpmyadmin:5.2.2
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mysql
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - lab
+    mem_limit: 384m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "tools"
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
+      ME_CONFIG_BASICAUTH_ENABLED: "true"
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_UI_USER:?Define MONGO_UI_USER}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_UI_PASSWORD:?Define MONGO_UI_PASSWORD}
+    ports:
+      - "127.0.0.1:8083:8081"
+    networks:
+      - lab
+    mem_limit: 384m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "tools"
+
+  redisinsight:
+    image: redis/redisinsight:2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5540:5540"
+    volumes:
+      - redisinsight_data:/data
+    networks:
+      - lab
+    mem_limit: 384m
+    cpus: 0.5
+    labels:
+      com.dblab.managed: "true"
+      com.dblab.group: "tools"
+
+# ==========================================
+# NETWORKS
+# ==========================================
+
+networks:
+  lab:
+    name: db-lab-network
+    driver: bridge
+
+# ==========================================
+# PERSISTENT VOLUMES
+# ==========================================
+
+volumes:
+  postgres_data:
+  mysql_data:
+  mariadb_data:
+  mongodb_data:
+  redis_data:
+  rabbitmq_data:
+  kafka_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  alloy_data:
+  redisinsight_data:

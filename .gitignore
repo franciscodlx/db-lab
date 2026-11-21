@@ -1,0 +1,132 @@
+
+# ==========================================
+# DB LAB ENTERPRISE
+# ==========================================
+
+# Secrets and environment
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# ==========================================
+# Backups and database data
+# ==========================================
+
+backups/
+*.sql
+*.sql.gz
+*.dump
+*.dump.gz
+*.bson
+*.bson.gz
+*.rdb
+*.aof
+*.bak
+
+# Local database directories
+data/
+volumes/
+persistent-data/
+
+# ==========================================
+# Logs
+# ==========================================
+
+logs/
+*.log
+*.log.*
+npm-debug.log*
+docker-*.log
+
+# ==========================================
+# Monitoring local state
+# ==========================================
+
+monitoring/data/
+prometheus-data/
+grafana-data/
+loki-data/
+alertmanager-data/
+
+# ==========================================
+# Docker local overrides
+# ==========================================
+
+docker-compose.override.yml
+docker-compose.local.yml
+.env.local
+
+# ==========================================
+# macOS
+# ==========================================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# ==========================================
+# Editors and IDE
+# ==========================================
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==========================================
+# Temporary files
+# ==========================================
+
+tmp/
+temp/
+.cache/
+*.tmp
+*.bak
+*.orig
+
+# ==========================================
+# Python
+# ==========================================
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ==========================================
+# Node
+# ==========================================
+
+node_modules/
+
+# ==========================================
+# Test artifacts
+# ==========================================
+
+coverage/
+.pytest_cache/
+reports/
+test-results/
+
+# Loki
+loki-data/
+monitoring/data/
+
+# Alloy
+alloy-data/
+
+# Backups
+backups/
